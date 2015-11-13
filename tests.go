@@ -2,9 +2,10 @@ package tesls
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
-	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -43,10 +44,6 @@ func (s TestSlice) Less(i, j int) bool { return s[i].Pkg+s[i].Name < s[j].Pkg+s[
 // Sort is a convenience method.
 func (s TestSlice) Sort() { sort.Sort(s) }
 
-func filter(fi os.FileInfo) bool {
-	return strings.HasSuffix(fi.Name(), "_test.go")
-}
-
 func isTest(fdecl *ast.FuncDecl) bool {
 	return strings.HasPrefix(fdecl.Name.String(), "Test") &&
 		fdecl.Type != nil &&
@@ -55,24 +52,32 @@ func isTest(fdecl *ast.FuncDecl) bool {
 		types.ExprString(fdecl.Type.Params.List[0].Type) == "*testing.T"
 }
 
+func isNoGoError(err error) bool {
+	_, ok := err.(*build.NoGoError)
+	return ok
+}
+
 // Tests function searches for test function declarations in the given directory.
 func Tests(dir string) (tests TestSlice, err error) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, filter, parser.Mode(0))
-	if err != nil {
+	pkg, err := build.ImportDir(dir, build.ImportMode(0))
+	if err != nil && !isNoGoError(err) {
 		return nil, err
 	}
-	for _, pkg := range pkgs {
-		for filename, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				fdecl, ok := decl.(*ast.FuncDecl)
-				if ok && isTest(fdecl) {
-					tests = append(tests, Test{
-						Name: fdecl.Name.String(),
-						File: filename,
-						Pkg:  pkg.Name,
-					})
-				}
+	fset := token.NewFileSet()
+	for _, filename := range pkg.TestGoFiles {
+		filename = filepath.Join(dir, filename)
+		f, err := parser.ParseFile(fset, filename, nil, parser.Mode(0))
+		if err != nil {
+			return nil, err
+		}
+		for _, decl := range f.Decls {
+			fdecl, ok := decl.(*ast.FuncDecl)
+			if ok && isTest(fdecl) {
+				tests = append(tests, Test{
+					Name: fdecl.Name.String(),
+					File: filename,
+					Pkg:  pkg.Name,
+				})
 			}
 		}
 	}
