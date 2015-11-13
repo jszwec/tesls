@@ -34,16 +34,6 @@ var format = flag.String("format", defaultFormat, "")
 
 type set map[string]struct{}
 
-type once bool
-
-func (o *once) Do(f func()) {
-	if *o {
-		return
-	}
-	*o = true
-	f()
-}
-
 func init() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0], defaultFormat)
@@ -57,8 +47,11 @@ func check(err error) {
 	}
 }
 
-func walkfunc(dirs set) error {
-	return filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+func walkfunc(root string, dirs set) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			if strings.HasPrefix(info.Name(), ".git") {
 				return filepath.SkipDir
@@ -73,27 +66,42 @@ func walkfunc(dirs set) error {
 	})
 }
 
-func main() {
-	flag.Parse()
-	if flag.NArg() == 0 {
-		flag.Usage()
-		return
+func recursiveArg(arg string) (string, bool) {
+	if strings.HasSuffix(arg, "/...") {
+		return arg[:len(arg)-4], true
 	}
-	dirs := make(set)
-	var once once
+	return arg, false
+}
+
+func absDir(arg string) (string, error) {
+	if strings.HasPrefix(arg, ".") {
+		return filepath.Abs(arg)
+	}
+	p, err := build.Import(arg, "", build.FindOnly)
+	if err != nil {
+		return "", err
+	}
+	return p.Dir, nil
+}
+
+func testDirs() set {
+	var dirs = make(set)
 	for _, arg := range flag.Args() {
-		switch {
-		case strings.HasPrefix(arg, "-"):
+		if strings.HasPrefix(arg, "-") {
 			continue
-		case arg == "./...":
-			once.Do(func() { check(walkfunc(dirs)) })
-		default:
-			p, err := build.Import(arg, "", build.FindOnly)
-			check(err)
-			dirs[p.Dir] = struct{}{}
+		}
+		arg, rec := recursiveArg(arg)
+		dir, err := absDir(arg)
+		check(err)
+		dirs[dir] = struct{}{}
+		if rec {
+			check(walkfunc(dir, dirs))
 		}
 	}
-	var ts tesls.TestSlice
+	return dirs
+}
+
+func tests(dirs set) (ts tesls.TestSlice) {
 	for dir := range dirs {
 		t, err := tesls.Tests(dir)
 		check(err)
@@ -103,6 +111,10 @@ func main() {
 		check(errors.New("no tests were found"))
 	}
 	ts.Sort()
+	return
+}
+
+func printTests(ts tesls.TestSlice) {
 	switch *format {
 	case "json":
 		b, err := json.Marshal(ts)
@@ -116,4 +128,13 @@ func main() {
 			fmt.Fprintln(os.Stdout, t.Format(*format))
 		}
 	}
+}
+
+func main() {
+	flag.Parse()
+	if flag.NArg() == 0 {
+		flag.Usage()
+		return
+	}
+	printTests(tests(testDirs()))
 }
