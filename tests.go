@@ -7,6 +7,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"golang.org/x/tools/go/types"
 )
 
 // Test describes a single test found in the *_test.go file
@@ -45,6 +47,14 @@ func filter(fi os.FileInfo) bool {
 	return strings.HasSuffix(fi.Name(), "_test.go")
 }
 
+func isTest(fdecl *ast.FuncDecl) bool {
+	return strings.HasPrefix(fdecl.Name.String(), "Test") &&
+		fdecl.Type != nil &&
+		fdecl.Type.Params != nil &&
+		len(fdecl.Type.Params.List) == 1 &&
+		types.ExprString(fdecl.Type.Params.List[0].Type) == "*testing.T"
+}
+
 // Tests function searches for test function declarations in the given directory.
 func Tests(dir string) (tests TestSlice, err error) {
 	fset := token.NewFileSet()
@@ -55,10 +65,10 @@ func Tests(dir string) (tests TestSlice, err error) {
 	for _, pkg := range pkgs {
 		for filename, file := range pkg.Files {
 			for _, decl := range file.Decls {
-				fdec, ok := decl.(*ast.FuncDecl)
-				if ok && strings.HasPrefix(fdec.Name.String(), "Test") {
+				fdecl, ok := decl.(*ast.FuncDecl)
+				if ok && isTest(fdecl) {
 					tests = append(tests, Test{
-						Name: fdec.Name.String(),
+						Name: fdecl.Name.String(),
 						File: filename,
 						Pkg:  pkg.Name,
 					})
