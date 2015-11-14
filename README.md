@@ -1,4 +1,4 @@
-tesls
+tesls [![Build Status](https://travis-ci.org/jszwec/tesls.svg)](https://travis-ci.org/jszwec/tesls)
 ==========
 
 Lists tests in the given Go package without running them.
