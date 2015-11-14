@@ -64,7 +64,7 @@ func Tests(dir string) (tests TestSlice, err error) {
 		return nil, err
 	}
 	fset := token.NewFileSet()
-	for _, filename := range pkg.TestGoFiles {
+	for _, filename := range append(pkg.TestGoFiles, pkg.XTestGoFiles...) {
 		filename = filepath.Join(dir, filename)
 		f, err := parser.ParseFile(fset, filename, nil, parser.Mode(0))
 		if err != nil {
@@ -76,7 +76,7 @@ func Tests(dir string) (tests TestSlice, err error) {
 				tests = append(tests, Test{
 					Name: fdecl.Name.String(),
 					File: filename,
-					Pkg:  pkg.Name,
+					Pkg:  f.Name.String(),
 				})
 			}
 		}
