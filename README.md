@@ -12,6 +12,10 @@ Installation
 Usage
 -----
 
+    tesls .
+    tesls ./...
     tesls github.com/jszwec/tesls
+    tesls github.com/jszwec/tesls/...
+    tesls github.com/jszwec/tesls github.com/jszwec/tesls/cmd/tesls
     tesls -f='json' github.com/jszwec/tesls
     tesls -f='{{.Pkg}}.{{.Name}} {{.File}}' github.com/jszwec/tesls
