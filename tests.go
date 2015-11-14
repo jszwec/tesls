@@ -1,6 +1,7 @@
 package tesls
 
 import (
+	"fmt"
 	"go/ast"
 	"go/build"
 	"go/parser"
@@ -19,18 +20,10 @@ type Test struct {
 	Pkg  string `json:"pkg"`
 }
 
-// Format returns Test struct as a string in the given format.
-// It can be any string in which %P will turn into package name,
-// %T into test name, and %F into file path in which test was found.
-// Note that it is not required to use all three placeholders.
-func (t *Test) Format(format string) string {
-	return strings.NewReplacer("%P", t.Pkg, "%T", t.Name, "%F", t.File).Replace(format)
-}
-
 // String returns a string representation of the Test
 // in the form of 'package.Test filename'
 func (t *Test) String() string {
-	return t.Format("%P.%T %F")
+	return fmt.Sprintf("%s.%s %s", t.Pkg, t.Name, t.File)
 }
 
 // TestSlice attaches the methods of sort.Interface to []Test.

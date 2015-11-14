@@ -6,31 +6,39 @@ import (
 	"flag"
 	"fmt"
 	"go/build"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/jszwec/tesls"
 )
 
-const usage = `%s [-format='format'] <packages>
+const usage = `%s [-f='text/template'] <packages>
 
 Options:
 
-	-format:
+	-f:
 		it can be "json" or any other layout where
-		%%T = test name
-		%%P = package
-		%%F = file path
+
+			{{.Name}} = test name
+			{{.Pkg}}  = package
+			{{.File}} = file path
+
 		Default("%s")
 
 tesls is looking for tests in the given list of packages.
 It can also look for them recursively starting in the current directory by using: tesls ./...
 `
+const defaultFormat = "{{.Pkg}}.{{.Name}} {{.File}}"
 
-const defaultFormat = "%P.%T %F"
+const iterationTemplate = "{{range .}}%s\n{{end}}"
 
-var format = flag.String("format", defaultFormat, "")
+var defaultTemplate = template.Must(
+	template.New("default").Parse(fmt.Sprintf(iterationTemplate, defaultFormat)))
+
+var format = flag.String("f", defaultFormat, "")
 
 type set map[string]struct{}
 
@@ -84,7 +92,7 @@ func absDir(arg string) (string, error) {
 	return p.Dir, nil
 }
 
-func testDirs() set {
+func testDirs() (set, error) {
 	var dirs = make(set)
 	for _, arg := range flag.Args() {
 		if strings.HasPrefix(arg, "-") {
@@ -92,42 +100,57 @@ func testDirs() set {
 		}
 		arg, rec := recursiveArg(arg)
 		dir, err := absDir(arg)
-		check(err)
+		if err != nil {
+			return nil, err
+		}
 		dirs[dir] = struct{}{}
 		if rec {
-			check(walkfunc(dir, dirs))
+			if err := walkfunc(dir, dirs); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return dirs
+	return dirs, nil
 }
 
-func tests(dirs set) (ts tesls.TestSlice) {
+func tests(dirs set) (ts tesls.TestSlice, err error) {
 	for dir := range dirs {
 		t, err := tesls.Tests(dir)
-		check(err)
+		if err != nil {
+			return nil, err
+		}
 		ts = append(ts, t...)
 	}
 	if len(ts) == 0 {
-		check(errors.New("no tests were found"))
+		return nil, errors.New("no tests were found")
 	}
 	ts.Sort()
-	return
+	return ts, nil
 }
 
-func printTests(ts tesls.TestSlice) {
-	switch *format {
+func getTemplate(format string) (*template.Template, error) {
+	switch format {
+	case "", defaultFormat:
+		return defaultTemplate, nil
+	default:
+		return template.New("TestTemplate").Parse(fmt.Sprintf(iterationTemplate, format))
+	}
+}
+
+func printTests(w io.Writer, ts tesls.TestSlice, format string, t *template.Template) error {
+	switch format {
 	case "json":
 		b, err := json.Marshal(ts)
-		check(err)
-		fmt.Fprintln(os.Stdout, string(b))
-	case "":
-		*format = defaultFormat
-		fallthrough
-	default:
-		for _, t := range ts {
-			fmt.Fprintln(os.Stdout, t.Format(*format))
+		if err != nil {
+			return err
 		}
+		if _, err := fmt.Fprintln(w, string(b)); err != nil {
+			return err
+		}
+	default:
+		return t.Execute(w, ts)
 	}
+	return nil
 }
 
 func main() {
@@ -136,5 +159,11 @@ func main() {
 		flag.Usage()
 		return
 	}
-	printTests(tests(testDirs()))
+	t, err := getTemplate(*format)
+	check(err)
+	dirs, err := testDirs()
+	check(err)
+	ts, err := tests(dirs)
+	check(err)
+	check(printTests(os.Stdout, ts, *format, t))
 }

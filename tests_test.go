@@ -89,10 +89,4 @@ func TestTests(t *testing.T) {
 	if !reflect.DeepEqual(expected, ts) {
 		t.Errorf("expected %v; got %v", expected, ts)
 	}
-	expectedTestStr := fmt.Sprintf("test%s%s%s", expected[0].Name,
-		expected[0].Pkg, expected[0].File)
-	TestStr := ts[0].Format(`test%T%P%F`)
-	if TestStr != expectedTestStr {
-		t.Errorf("expected %s; got %s", expectedTestStr, TestStr)
-	}
 }

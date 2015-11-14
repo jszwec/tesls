@@ -13,5 +13,5 @@ Usage
 -----
 
     tesls github.com/jszwec/tesls
-    tesls -format='json' github.com/jszwec/tesls
-    tesls -format='%P.%T %F' github.com/jszwec/tesls
+    tesls -f='json' github.com/jszwec/tesls
+    tesls -f='{{.Pkg}}.{{.Name}} {{.File}}' github.com/jszwec/tesls
