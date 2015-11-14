@@ -92,9 +92,9 @@ func absDir(arg string) (string, error) {
 	return p.Dir, nil
 }
 
-func testDirs() (set, error) {
+func testDirs(args []string) (set, error) {
 	var dirs = make(set)
-	for _, arg := range flag.Args() {
+	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
 			continue
 		}
@@ -161,7 +161,7 @@ func main() {
 	}
 	t, err := getTemplate(*format)
 	check(err)
-	dirs, err := testDirs()
+	dirs, err := testDirs(flag.Args())
 	check(err)
 	ts, err := tests(dirs)
 	check(err)
