@@ -1,23 +1,24 @@
 package tesls
 
 import (
-	"fmt"
 	"go/build"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"testing"
+	"text/template"
 )
 
 const pkg = "github.com/jszwec/tesls"
 
-const codeTest = `%spackage %s
+const testFileStr = "{{if .BuildTag}}{{.BuildTag}}\n\n{{else}}{{end}}package {{.Pkg}}\n\n" +
+	"import \"testing\"\n\n" +
+	"{{if .Type}}{{.Type}}\n\n{{else}}{{end}}" +
+	"{{range .TestFuncs}}func {{.Recv}} {{.TestName}}({{.Params}}) {{.Results}} {{.Body}}\n{{end}}\n"
 
-import "testing"
-
-func %s(t *testing.T) {}
-`
+var testFileTemplate = template.Must(
+	template.New("testFile").Parse(testFileStr))
 
 var goos = []string{
 	"android",
@@ -33,6 +34,21 @@ var goos = []string{
 	"windows",
 }
 
+type testFile struct {
+	BuildTag  string
+	Pkg       string
+	Type      string
+	TestFuncs []testFunc
+}
+
+type testFunc struct {
+	Recv     string
+	TestName string
+	Params   string
+	Results  string
+	Body     string
+}
+
 func chooseOtherOS() string {
 	for _, os := range goos {
 		if runtime.GOOS != os {
@@ -42,21 +58,137 @@ func chooseOtherOS() string {
 	return ""
 }
 
-func createTestFiles(t *testing.T, dir string) {
-	if err := ioutil.WriteFile(filepath.Join(dir, "package_test.go"),
-		[]byte(fmt.Sprintf(codeTest, "", "tesls_test", "TestZPackage")), 0655); err != nil {
-		t.Fatal(err)
+func removeTestFiles(files []string) error {
+	for _, f := range files {
+		if err := os.Remove(f); err != nil {
+			return err
+		}
 	}
-	if err := ioutil.WriteFile(filepath.Join(dir, "tag_test.go"),
-		[]byte(fmt.Sprintf(codeTest,
-			"// +build "+chooseOtherOS()+"\n\n", "tesls", "TestTag")), 0655); err != nil {
-		t.Fatal(err)
+	return nil
+}
+
+func createTestFiles(t *testing.T, dir string) (files []string, err error) {
+	filesData := []struct {
+		File     string
+		TestFile testFile
+	}{
+		{
+			File: filepath.Join(dir, "package_test.go"),
+			TestFile: testFile{
+				Pkg: "tesls_test",
+				TestFuncs: []testFunc{
+					{
+						TestName: "TestZPackage",
+						Params:   "t *testing.T",
+						Body:     "{}",
+					},
+				},
+			},
+		},
+		{
+			File: filepath.Join(dir, "tag_test.go"),
+			TestFile: testFile{
+				BuildTag: "// +build " + chooseOtherOS(),
+				Pkg:      "tesls",
+				TestFuncs: []testFunc{
+					{
+						TestName: "TestTag",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+				},
+			},
+		},
+		{
+			File: filepath.Join(dir, "os_"+chooseOtherOS()+"_test.go"),
+			TestFile: testFile{
+				Pkg: "tesls",
+				TestFuncs: []testFunc{
+					{
+						TestName: "TestDifferentOS",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+				},
+			},
+		},
+		{
+			File: filepath.Join(dir, "func_test.go"),
+			TestFile: testFile{
+				Pkg:  "tesls",
+				Type: "type foo int",
+				TestFuncs: []testFunc{
+					{
+						TestName: "TestornotTest",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+					{
+						Recv:     "(f *foo)",
+						TestName: "TestMethod",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+					{
+						Recv:     "(foo)",
+						TestName: "TestMethod2",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+					{
+						TestName: "TestReturn",
+						Params:   "*testing.T",
+						Results:  "int",
+						Body:     "{return 5}",
+					},
+					{
+						TestName: "TestTwoParams",
+						Params:   "t *testing.T, s string",
+						Body:     "{}",
+					},
+					{
+						TestName: "TestTwoParamsStringFirst",
+						Params:   "s string, t *testing.T",
+						Body:     "{}",
+					},
+					{
+						TestName: "TestOneParamWrong",
+						Params:   "s string",
+						Body:     "{}",
+					},
+					{
+						TestName: "Test",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+					{
+						TestName: "Test1",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+					{
+						TestName: "NotATest",
+						Params:   "*testing.T",
+						Body:     "{}",
+					},
+				},
+			},
+		},
 	}
-	if err := ioutil.WriteFile(filepath.Join(dir, "os_"+chooseOtherOS()+"_test.go"),
-		[]byte(fmt.Sprintf(codeTest,
-			"", "tesls", "TestDifferentOS")), 0655); err != nil {
-		t.Fatal(err)
+	for _, data := range filesData {
+		files = append(files, data.File)
+		f, err := os.Create(data.File)
+		if err != nil {
+			return files, err
+		}
+		if err = testFileTemplate.Execute(f, data.TestFile); err != nil {
+			return files, err
+		}
+		if err = f.Close(); err != nil {
+			return files, err
+		}
 	}
+	return files, err
 }
 
 func TestTests(t *testing.T) {
@@ -64,8 +196,22 @@ func TestTests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	createTestFiles(t, p.Dir)
+	files, err := createTestFiles(t, p.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer removeTestFiles(files)
 	expected := TestSlice{
+		{
+			Name: "Test",
+			File: filepath.Join(p.Dir, "func_test.go"),
+			Pkg:  "tesls",
+		},
+		{
+			Name: "Test1",
+			File: filepath.Join(p.Dir, "func_test.go"),
+			Pkg:  "tesls",
+		},
 		{
 			Name: "TestTests",
 			File: filepath.Join(p.Dir, "tests_test.go"),
@@ -83,8 +229,8 @@ func TestTests(t *testing.T) {
 	}
 	expected.Sort()
 	ts.Sort()
-	if len(ts) != 2 {
-		t.Errorf("expected len(ts) = 2; got %d", len(ts))
+	if len(ts) != len(expected) {
+		t.Errorf("expected len(ts) = %d; got %d", len(expected), len(ts))
 	}
 	if !reflect.DeepEqual(expected, ts) {
 		t.Errorf("expected %v; got %v", expected, ts)

@@ -6,11 +6,12 @@ import (
 	"go/build"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"golang.org/x/tools/go/types"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Test describes a single test found in the *_test.go file
@@ -38,11 +39,23 @@ func (s TestSlice) Less(i, j int) bool { return s[i].Pkg+s[i].Name < s[j].Pkg+s[
 func (s TestSlice) Sort() { sort.Sort(s) }
 
 func isTest(fdecl *ast.FuncDecl) bool {
-	return strings.HasPrefix(fdecl.Name.String(), "Test") &&
-		fdecl.Type != nil &&
-		fdecl.Type.Params != nil &&
-		len(fdecl.Type.Params.List) == 1 &&
-		types.ExprString(fdecl.Type.Params.List[0].Type) == "*testing.T"
+	const prefix = "Test"
+	if !strings.HasPrefix(fdecl.Name.String(), prefix) ||
+		fdecl.Recv != nil ||
+		fdecl.Type.Results != nil && len(fdecl.Type.Results.List) > 0 ||
+		fdecl.Type.Params == nil ||
+		len(fdecl.Type.Params.List) != 1 ||
+		len(fdecl.Type.Params.List[0].Names) > 1 ||
+		types.ExprString(fdecl.Type.Params.List[0].Type) != "*testing.T" {
+		return false
+	}
+	if len(fdecl.Name.String()) > len(prefix) {
+		rune, _ := utf8.DecodeRuneInString(fdecl.Name.String()[len(prefix):])
+		if unicode.IsLower(rune) {
+			return false
+		}
+	}
+	return true
 }
 
 func isNoGoError(err error) bool {
