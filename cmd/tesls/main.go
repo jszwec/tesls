@@ -10,12 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 	"text/template"
 
 	"github.com/jszwec/tesls"
 )
 
-const usage = `%s [-f='text/template'] <packages>
+const usage = `%s [-f='text/template'] [-tabs=true/false] <packages>
 
 Options:
 
@@ -28,17 +29,23 @@ Options:
 
 		Default("%s")
 
+	-tabs:
+		add tabs to the output
+
+		Default(true)
+
+
 tesls is looking for tests in the given list of packages.
 It can also look for them recursively starting in the current directory by using: tesls ./...
 `
-const defaultFormat = "{{.Pkg}}.{{.Name}} {{.File}}"
+const defaultFormat = "{{.Pkg}} {{.Name}} {{.File}}"
+
+const defaultFormatTab = "{{.Pkg}}\t{{.Name}}\t{{.File}}"
 
 const iterationTemplate = "{{range .}}%s\n{{end}}"
 
-var defaultTemplate = template.Must(
-	template.New("default").Parse(fmt.Sprintf(iterationTemplate, defaultFormat)))
-
 var format = flag.String("f", defaultFormat, "")
+var tabs = flag.Bool("tabs", true, "")
 
 type set map[string]struct{}
 
@@ -128,13 +135,23 @@ func tests(dirs set) (ts tesls.TestSlice, err error) {
 	return ts, nil
 }
 
-func getTemplate(format string) (*template.Template, error) {
-	switch format {
-	case "", defaultFormat:
-		return defaultTemplate, nil
-	default:
-		return template.New("TestTemplate").Parse(fmt.Sprintf(iterationTemplate, format))
+func output(tabs bool, format string) (io.Writer, string, func() error) {
+	if !tabs {
+		return os.Stdout, format, nil
 	}
+	w := new(tabwriter.Writer)
+	w.Init(os.Stdout, 5, 0, 5, ' ', 0)
+	return w, strings.Join(strings.Fields(format), "\t"), w.Flush
+}
+
+func getTemplate(tabs bool, format string) (*template.Template, error) {
+	switch {
+	case format == "" && tabs:
+		format = defaultFormatTab
+	case format == "" && !tabs:
+		format = defaultFormat
+	}
+	return template.New("TestTemplate").Parse(fmt.Sprintf(iterationTemplate, format))
 }
 
 func printTests(w io.Writer, ts tesls.TestSlice, format string, t *template.Template) error {
@@ -159,11 +176,15 @@ func main() {
 		flag.Usage()
 		return
 	}
-	t, err := getTemplate(*format)
+	w, format, fn := output(*tabs, *format)
+	t, err := getTemplate(*tabs, format)
 	check(err)
 	dirs, err := testDirs(flag.Args())
 	check(err)
 	ts, err := tests(dirs)
 	check(err)
-	check(printTests(os.Stdout, ts, *format, t))
+	check(printTests(w, ts, format, t))
+	if fn != nil {
+		fn()
+	}
 }

@@ -24,7 +24,7 @@ type Test struct {
 // String returns a string representation of the Test
 // in the form of 'package.Test filename'
 func (t *Test) String() string {
-	return fmt.Sprintf("%s.%s %s", t.Pkg, t.Name, t.File)
+	return fmt.Sprintf("%s %s %s", t.Pkg, t.Name, t.File)
 }
 
 // TestSlice attaches the methods of sort.Interface to []Test.
